@@ -1,0 +1,15 @@
+name:               serialtalk 
+version:            0.5.0
+synopsis:           Simple serial port scripting tool
+homepage:           http://serialtalk.com
+category:           Hardware
+author:             Vasyl Pasternak
+license:            BSD3
+license-file:       LICENSE
+cabal-version:      >= 1.10
+build-type:         Simple
+
+executable serialtalk
+  build-depends:    base, regex-posix, bytestring, serialport, containers, json
+  main-is:          Main.hs
+  hs-source-dirs:   src
