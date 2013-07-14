@@ -1,7 +1,7 @@
 name:               serialtalk 
 version:            0.5.0
 synopsis:           Simple serial port scripting tool
-homepage:           http://serialtalk.com
+homepage:           https://github.com/vasylp/serialtalk
 category:           Hardware
 author:             Vasyl Pasternak
 license:            BSD3
