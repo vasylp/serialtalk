@@ -1,0 +1,39 @@
+{
+    "mainDispatcher":"main",
+    "dispatchers":[
+        {
+            "name":"main",
+            "dispatch":[
+                {
+                    "pattern":".*login:",
+                    "textToSend":"user1",
+                    "nextDispatcher":"main",
+                    "timeout":10
+                },
+                {
+                    "pattern":"[P|p]assword:",
+                    "textToSend":"12345",
+                    "nextDispatcher":"main",
+                    "timeout":10
+                },
+                {
+                    "pattern":"[user1.*]$",
+                    "textToSend":"ifconfig",
+                    "nextDispatcher":"ifconfig",
+                    "timeout":10
+                }
+            ]
+        },
+        {
+            "name":"ifconfig",
+            "dispatch":[
+                { 
+                    "pattern":"[user1.*]$",
+                    "textToSend":"scp /var/log.txt user@machine:/log/cache",
+                    "nextDispatcher":"none",
+                    "timeout":5
+                }
+            ]
+        }
+    ]
+}
