@@ -6,18 +6,18 @@
             "dispatch":[
                 {
                     "pattern":".*login:",
-                    "textToSend":"user1",
+                    "textToSend":"$SG_LOGIN$",
                     "nextDispatcher":"main",
                     "timeout":10
                 },
                 {
                     "pattern":"[P|p]assword:",
-                    "textToSend":"12345",
+                    "textToSend":"$SG_PASSWORD$",
                     "nextDispatcher":"main",
                     "timeout":10
                 },
                 {
-                    "pattern":"[user1.*]$",
+                    "pattern":"root.*]#",
                     "textToSend":"ifconfig",
                     "nextDispatcher":"ifconfig",
                     "timeout":10
@@ -28,9 +28,20 @@
             "name":"ifconfig",
             "dispatch":[
                 { 
-                    "pattern":"[user1.*]$",
-                    "textToSend":"scp /var/log.txt user@machine:/log/cache",
-                    "nextDispatcher":"none",
+                    "pattern":"root.*]#",
+                    "textToSend":"cat /var/log/messages",
+                    "nextDispatcher":"catLog",
+                    "timeout":5
+                }
+            ]
+        },
+        {
+            "name":"catLog",
+            "dispatch":[
+                {
+                    "pattern":"root.*]#",
+                    "textToSend":"exit",
+                    "nextDispatcher":"exitFailure",
                     "timeout":5
                 }
             ]

@@ -2,13 +2,16 @@ module Main where
 
 import System.Hardware.Serialport
 import qualified Data.ByteString.Char8 as B
-import System.Environment (getArgs)
+import System.Environment (getArgs, getEnvironment)
 import System.IO
 import Control.Monad
 import Text.Regex.Posix
 import Data.List
+import Data.String.Utils
 import ConfigParser hiding (timeout)
 import qualified Data.Map as M
+import Text.StringTemplate
+import System.Exit
 
 data Direction = SEND | RECV deriving Show
 
@@ -16,10 +19,10 @@ writeToLog :: String -> IO ()
 writeToLog = putStrLn
 
 writeToLogComm :: Direction -> String -> IO()
-writeToLogComm dir str = if str == empty then return () else writeToLog $ (show dir) ++ " " ++ str
+writeToLogComm dir str = if str == empty then return () else writeToLog $ (show dir) ++ " " ++ (strip str)
 
 writeToLogControl :: String -> IO ()
-writeToLogControl = writeToLog
+writeToLogControl = writeToLog . strip
 
 setSerialTimeout :: SerialPort -> Int -> IO SerialPort
 setSerialTimeout sp to = do
@@ -68,33 +71,48 @@ main :: IO()
 main = do
     (portName:configFile:[]) <- getArgs
     rules <- parseRules configFile
+    env <- getEnvironment
+    
     serial <- openSerialPort portName
 
     sendLine serial B.empty 
     
-    dispatchNext rules (entryPoint rules) serial
+    dispatchNext env rules (entryPoint rules) serial
 
     closeSerialPort serial
 
 getRules :: Rules -> String -> Maybe [Pattern]
 getRules (Rules {dispatchMap=m}) name = name `M.lookup` m
 
-ruleToPatternDispatch :: Rules -> Pattern -> (B.ByteString, (SerialPort -> B.ByteString -> IO()))
-ruleToPatternDispatch rules Pattern {pattern=p, textToSend=t, nextDispatcher=n} = (B.pack p, sendString rules t n)
+ruleToPatternDispatch :: [(String, String)] -> Rules -> Pattern -> (B.ByteString, (SerialPort -> B.ByteString -> IO()))
+ruleToPatternDispatch env rules Pattern {pattern=p, textToSend=t, nextDispatcher=n} = (B.pack p, sendString env rules t n)
 
-sendString :: Rules -> String -> String -> SerialPort -> B.ByteString -> IO ()
-sendString rules txt disp serial _ = do
-    sendLine serial (B.pack txt)
-    dispatchNext rules disp serial
+sendString :: [(String, String)] -> Rules -> String -> String -> SerialPort -> B.ByteString -> IO ()
+sendString env rules txt disp serial _ = do
+    let subst = substituteWithEnv env txt
+    writeToLogControl $ "Sending line: '" ++ txt ++ "' converted to '" ++ subst ++ "'"
+    sendLine serial (B.pack subst)
+    dispatchNext env rules disp serial
 
-dispatchNext :: Rules -> String -> SerialPort -> IO()
-dispatchNext rules dn serial = do
+dispatchNext :: [(String, String)] -> Rules -> String -> SerialPort -> IO()
+dispatchNext env rules dn serial = do
     let dr = getRules rules dn
     case dr of
         Nothing -> do
-            writeToLogControl $ "Rule '" ++ dn ++ "' not found. Finishing"
-            return ()
+            case dn of
+                "exitFailure" -> do
+                     writeToLogControl $ "Rule '" ++ dn ++ "' Exiting with failure code"
+                     exitFailure
+                "exitSuccess" -> do
+                     writeToLogControl $ "Rule '" ++ dn ++ "' Exiting with success code"
+                     exitSuccess
+                _ -> do 
+                    writeToLogControl $ "Rule '" ++ dn ++ "' not found. Finishing with success"
+                    return ()
         Just pat -> do
             writeToLogControl $ "Switching to rule '" ++ dn ++ "'"
-            let ruleSet = map (ruleToPatternDispatch rules) pat
+            let ruleSet = map (ruleToPatternDispatch env rules) pat
             dispatchInput serial 20 ruleSet
+
+substituteWithEnv :: [(String, String)] -> String -> String
+substituteWithEnv env src = render $ setManyAttrib env $ newSTMP src
