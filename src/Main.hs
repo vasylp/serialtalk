@@ -12,6 +12,7 @@ import ConfigParser
 import qualified Data.Map as M
 import Text.StringTemplate
 import System.Exit
+import Control.Concurrent
 
 data Direction = SEND | RECV deriving Show
 
@@ -50,12 +51,22 @@ sendLine sp l = do
     bytes <- send sp str 
     return (bytes == B.length str)
 
+-- Seconds to sleep before kill
+timeoutGuard :: Int -> IO()
+timeoutGuard secs = do
+    let microSeconds = secs * 1000000
+    threadDelay microSeconds
+    writeToLogControl "TIME IS OUT"
+    exitFailure
+
 dispatchInput :: SerialPort -> Int -> [(B.ByteString, (SerialPort -> B.ByteString -> IO()))] -> Int -> IO ()
 dispatchInput serial count patlist tout = do
     runDispatch B.empty
     where 
         runDispatch bs = do
+            thId <- forkIO $ timeoutGuard tout
             input <- recv serial count
+            killThread thId
             let str = bs `B.append` input
             case find (predicate str) patlist of
                 Nothing -> do
