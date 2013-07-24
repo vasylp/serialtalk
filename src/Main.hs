@@ -8,7 +8,7 @@ import Control.Monad
 import Text.Regex.Posix
 import Data.List
 import Data.String.Utils
-import ConfigParser hiding (timeout)
+import ConfigParser
 import qualified Data.Map as M
 import Text.StringTemplate
 import System.Exit
@@ -27,7 +27,7 @@ writeToLogControl = writeToLog . strip
 setSerialTimeout :: SerialPort -> Int -> IO SerialPort
 setSerialTimeout sp to = do
     let settings = getSerialSettings sp
-    newsp <- setSerialSettings sp settings {timeout = to}
+    newsp <- setSerialSettings sp settings {System.Hardware.Serialport.timeout = to}
     writeToLogControl $ "Reset the timeout to " ++ (show to)
     return newsp
 
@@ -50,8 +50,8 @@ sendLine sp l = do
     bytes <- send sp str 
     return (bytes == B.length str)
 
-dispatchInput :: SerialPort -> Int -> [(B.ByteString, (SerialPort -> B.ByteString -> IO()))] -> IO ()
-dispatchInput serial count patlist = do
+dispatchInput :: SerialPort -> Int -> [(B.ByteString, (SerialPort -> B.ByteString -> IO()))] -> Int -> IO ()
+dispatchInput serial count patlist tout = do
     runDispatch B.empty
     where 
         runDispatch bs = do
@@ -77,7 +77,7 @@ main = do
 
     sendLine serial B.empty 
     
-    dispatchNext env rules (entryPoint rules) serial
+    dispatchNext env rules (entryPoint rules) 10 serial 
 
     closeSerialPort serial
 
@@ -85,17 +85,17 @@ getRules :: Rules -> String -> Maybe [Pattern]
 getRules (Rules {dispatchMap=m}) name = name `M.lookup` m
 
 ruleToPatternDispatch :: [(String, String)] -> Rules -> Pattern -> (B.ByteString, (SerialPort -> B.ByteString -> IO()))
-ruleToPatternDispatch env rules Pattern {pattern=p, textToSend=t, nextDispatcher=n} = (B.pack p, sendString env rules t n)
+ruleToPatternDispatch env rules Pattern {pattern=p, textToSend=t, nextDispatcher=n, ConfigParser.timeout=to} = (B.pack p, sendString env rules t n to)
 
-sendString :: [(String, String)] -> Rules -> String -> String -> SerialPort -> B.ByteString -> IO ()
-sendString env rules txt disp serial _ = do
+sendString :: [(String, String)] -> Rules -> String -> String -> Int -> SerialPort -> B.ByteString -> IO ()
+sendString env rules txt disp tout serial _ = do
     let subst = substituteWithEnv env txt
     writeToLogControl $ "Sending line: '" ++ txt ++ "' converted to '" ++ subst ++ "'"
     sendLine serial (B.pack subst)
-    dispatchNext env rules disp serial
+    dispatchNext env rules disp tout serial
 
-dispatchNext :: [(String, String)] -> Rules -> String -> SerialPort -> IO()
-dispatchNext env rules dn serial = do
+dispatchNext :: [(String, String)] -> Rules -> String -> Int -> SerialPort -> IO()
+dispatchNext env rules dn tout serial = do
     let dr = getRules rules dn
     case dr of
         Nothing -> do
@@ -112,7 +112,7 @@ dispatchNext env rules dn serial = do
         Just pat -> do
             writeToLogControl $ "Switching to rule '" ++ dn ++ "'"
             let ruleSet = map (ruleToPatternDispatch env rules) pat
-            dispatchInput serial 20 ruleSet
+            dispatchInput serial 20 ruleSet tout
 
 substituteWithEnv :: [(String, String)] -> String -> String
 substituteWithEnv env src = render $ setManyAttrib env $ newSTMP src
