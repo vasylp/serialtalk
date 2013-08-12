@@ -17,6 +17,7 @@ import System.IO
 import Data.Time.Clock
 import Data.Time.Format
 import System.Locale
+import Control.Concurrent.MVar
 
 data Direction = SEND | RECV
 
@@ -69,20 +70,20 @@ sendLine sp l = do
     return (bytes == B.length str)
 
 -- Seconds to sleep before kill
-timeoutGuard :: Int -> IO()
-timeoutGuard secs = do
+timeoutGuard :: Int -> MVar () -> IO()
+timeoutGuard secs mv = do
     let microSeconds = secs * 1000000
     threadDelay microSeconds
-    writeToLogControl "TIME IS OUT"
-    exitFailure
+    putMVar mv ()
 
 dispatchInput :: SerialPort -> Int -> [(B.ByteString, (SerialPort -> B.ByteString -> IO()))] -> Int -> IO ()
 dispatchInput serial count patlist tout = do
     runDispatch B.empty
     where 
         runDispatch bs = do
-            thId <- forkIO $ timeoutGuard tout
-            input <- recv serial count
+	    mv <- newEmptyMVar
+            thId <- forkIO $ timeoutGuard tout mv
+            input <- receivechars mv serial count
             killThread thId
             let str = bs `B.append` input
             case find (predicate str) patlist of
@@ -94,6 +95,15 @@ dispatchInput serial count patlist tout = do
                     writeToLogComm RECV $ B.unpack str 
                     cal serial str
         predicate s (pat, _) = s =~ pat
+	receivechars mv s cnt = do
+		x <- recv s cnt
+		v <- isEmptyMVar mv
+		if not v then do
+			writeToLogControl "TIME IS OUT"
+			exitFailure
+				    else do
+			return ()
+		if B.null x then receivechars mv s cnt else return x
 
 main :: IO()
 main = do
