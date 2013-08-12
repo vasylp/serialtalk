@@ -13,17 +13,34 @@ import qualified Data.Map as M
 import Text.StringTemplate
 import System.Exit
 import Control.Concurrent
+import System.IO
+import Data.Time.Clock
+import Data.Time.Format
+import System.Locale
 
-data Direction = SEND | RECV deriving Show
+data Direction = SEND | RECV
 
-writeToLog :: String -> IO ()
-writeToLog = putStrLn
+instance Show Direction where
+    show SEND = "S"
+    show RECV = "R" 
+
+writeToLogOut :: String -> IO ()
+writeToLogOut = putStrLn
+
+writeToLogErr :: String -> IO ()
+writeToLogErr = hPutStrLn stderr 
 
 writeToLogComm :: Direction -> String -> IO()
-writeToLogComm dir str = if str == empty then return () else writeToLog $ (show dir) ++ " " ++ (strip str)
+writeToLogComm dir str = do
+    tstr <- getCurrentTimeString
+    if str == empty then return () else writeToLogOut $ tstr ++ " " ++ (show dir) ++ ":" ++ (strip str)
+
+getCurrentTimeString :: IO String
+getCurrentTimeString = do currTime <- getCurrentTime
+                          return $ formatTime defaultTimeLocale "%H:%M:%S.%q" currTime
 
 writeToLogControl :: String -> IO ()
-writeToLogControl = writeToLog . strip
+writeToLogControl = writeToLogErr . strip
 
 setSerialTimeout :: SerialPort -> Int -> IO SerialPort
 setSerialTimeout sp to = do

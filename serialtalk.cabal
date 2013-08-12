@@ -10,6 +10,6 @@ cabal-version:      >= 1.10
 build-type:         Simple
 
 executable serialtalk
-  build-depends:    base, regex-posix, bytestring, serialport, containers, json, MissingH, HStringTemplate
+  build-depends:    base, regex-posix, bytestring, serialport, containers, json, MissingH, HStringTemplate, old-locale, time
   main-is:          Main.hs
   hs-source-dirs:   src
