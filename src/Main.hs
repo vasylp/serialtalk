@@ -29,7 +29,7 @@ writeToLogOut :: String -> IO ()
 writeToLogOut = putStrLn
 
 writeToLogErr :: String -> IO ()
-writeToLogErr = hPutStrLn stderr 
+writeToLogErr = putStrLn
 
 writeToLogComm :: Direction -> String -> IO()
 writeToLogComm dir str = do
@@ -107,6 +107,8 @@ dispatchInput serial count patlist tout = do
 
 main :: IO()
 main = do
+    hSetBuffering stdout NoBuffering
+    hSetBuffering stderr NoBuffering
     (portName:configFile:[]) <- getArgs
     rules <- parseRules configFile
     env <- getEnvironment
