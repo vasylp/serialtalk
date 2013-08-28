@@ -158,8 +158,9 @@ ruleToPatternDispatch anEnv rules Pattern {pattern=aPattern, textToSend=aTextToS
 sendString :: [(String, String)] -> Rules -> String -> String -> Int -> Handle -> String -> IO ()
 sendString anEnvironment aRules aTextToSend aDispatcher aTimeout aHandle _ = do
     let aSubstString = substituteWithEnv anEnvironment aTextToSend 
-    writeToLogControl $ "Sending line: '" ++ aTextToSend ++ "' converted to '" ++ aSubstString ++ "'"
-    sendLine aHandle aSubstString 
+    unless (null aSubstString) $ do
+        writeToLogControl $ "Sending line: '" ++ aTextToSend ++ "' converted to '" ++ aSubstString ++ "'"
+        sendLine aHandle aSubstString 
     dispatchNext anEnvironment aRules aDispatcher aTimeout aHandle 
 
 dispatchNext :: [(String, String)] -> Rules -> String -> Int -> Handle -> IO()
