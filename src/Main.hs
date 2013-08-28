@@ -36,7 +36,7 @@ writeToLogComm aDirection aString = do
     aTimestamp <- getCurrentTimeString
     if aString == empty 
         then return () 
-        else writeToLogOut $ aTimestamp ++ " " ++ (show aDirection) ++ ": " ++ (strip aString)
+        else writeToLogOut $ (take 13 aTimestamp) ++ " " ++ (show aDirection) ++ ": " ++ (strip aString)
 
 getCurrentTimeString :: IO String
 getCurrentTimeString = do 
@@ -70,6 +70,10 @@ timeoutGuard aSeconds aVar = do
     threadDelay aMs 
     putMVar aVar ()
 
+exitWithError aHandle errorStatus = do
+    hClose aHandle
+    errorStatus
+
 dispatchInput :: Handle -> [(String, (Handle -> String -> IO()))] -> Int -> IO ()
 dispatchInput aHandle aPatterns aTimeout = do
         runDispatch []
@@ -90,7 +94,7 @@ dispatchInput aHandle aPatterns aTimeout = do
             isTimeout <- isEmptyMVar aTimeoutVar
             unless isTimeout $ do
                 writeToLogControl "TIME IS OUT"
-                exitFailure
+                exitWithError aHandle exitFailure
             isEof <- hIsEOF aHandle
             if isEof
                 then do
@@ -141,10 +145,10 @@ dispatchNext anEnvironment aRules aDispatcherName aTimeout aHandle = do
             case aDispatcherName of
                 "exitFailure" -> do
                      writeToLogControl $ "Rule '" ++ aDispatcherName ++ "' Exiting with failure code"
-                     exitFailure
+                     exitWithError aHandle exitFailure
                 "exitSuccess" -> do
                      writeToLogControl $ "Rule '" ++ aDispatcherName ++ "' Exiting with success code"
-                     exitSuccess
+                     exitWithError aHandle exitSuccess
                 _ -> do 
                     writeToLogControl $ "Rule '" ++ aDispatcherName ++ "' not found. Finishing with success"
                     return ()
