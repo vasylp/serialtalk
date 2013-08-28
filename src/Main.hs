@@ -32,58 +32,64 @@ writeToLogErr :: String -> IO ()
 writeToLogErr = putStrLn
 
 writeToLogComm :: Direction -> String -> IO()
-writeToLogComm dir str = do
-    tstr <- getCurrentTimeString
-    if str == empty then return () else writeToLogOut $ tstr ++ " " ++ (show dir) ++ ":" ++ (strip str)
+writeToLogComm aDirection aString = do
+    aTimestamp <- getCurrentTimeString
+    if aString == empty 
+        then return () 
+        else writeToLogOut $ aTimestamp ++ " " ++ (show aDirection) ++ ": " ++ (strip aString)
 
 getCurrentTimeString :: IO String
-getCurrentTimeString = do currTime <- getCurrentTime
-                          return $ formatTime defaultTimeLocale "%H:%M:%S.%q" currTime
+getCurrentTimeString = do 
+    aCurrentTime <- getCurrentTime
+    return $ formatTime defaultTimeLocale "%H:%M:%S.%q" aCurrentTime 
 
 writeToLogControl :: String -> IO ()
 writeToLogControl = writeToLogErr . strip
 
-setSerialTimeout :: SerialPort -> Int -> IO SerialPort
-setSerialTimeout sp to = do
-    let settings = getSerialSettings sp
-    newsp <- setSerialSettings sp settings {System.Hardware.Serialport.timeout = to}
-    writeToLogControl $ "Reset the timeout to " ++ (show to)
-    return newsp
+openSerialPort :: FilePath -> IO Handle
+openSerialPort aFile = do
+    let aSpeed = CS115200
+    aHandle <- hOpenSerial aFile defaultSerialSettings {commSpeed = aSpeed}
+    writeToLogControl $ "Opened serial port '" ++ aFile ++ "' speed " ++ (show aSpeed)
+    return aHandle 
 
-openSerialPort :: FilePath -> IO SerialPort
-openSerialPort fp = do
-    let speed = CS115200
-    serial <- openSerial fp defaultSerialSettings {commSpeed = speed}
-    writeToLogControl $ "Opened serial port '" ++ fp ++ "' speed " ++ (show speed)
-    return serial
-
-closeSerialPort :: SerialPort -> IO ()
-closeSerialPort s = do
-    closeSerial s
+closeSerialPort :: Handle -> IO ()
+closeSerialPort aHandle = do
+    hClose aHandle 
     writeToLogControl $ "Serial port closed"
 
-sendLine :: SerialPort -> B.ByteString -> IO Bool
-sendLine sp l = do
-    writeToLogComm SEND $ B.unpack l
-    let str = B.snoc l '\r'
-    bytes <- send sp str 
-    return (bytes == B.length str)
+sendLine :: Handle -> String  -> IO Bool
+sendLine aHandle aLine = do
+    writeToLogComm SEND aLine  
+    hPutStr aHandle $ aLine ++ "\r"
+    return True
 
 -- Seconds to sleep before kill
 timeoutGuard :: Int -> MVar () -> IO()
-timeoutGuard secs mv = do
-    let microSeconds = secs * 1000000
-    threadDelay microSeconds
-    putMVar mv ()
+timeoutGuard aSeconds aVar = do
+    let aMs = aSeconds * 1000000
+    threadDelay aMs 
+    putMVar aVar ()
 
-dispatchInput :: SerialPort -> Int -> [(B.ByteString, (SerialPort -> B.ByteString -> IO()))] -> Int -> IO ()
-dispatchInput serial count patlist tout = do
-    runDispatch B.empty
+dispatchInput :: Handle -> [(String, (Handle -> String -> IO()))] -> Int -> IO ()
+dispatchInput aHandle aPatterns aTimeout = do
+        runDispatch []
+    where
+        runDispatch _ = do
+            aLine <- hGetLine aHandle
+            writeToLogComm RECV aLine
+            case find (predicate aLine) aPatterns of
+                Nothing -> do
+                    runDispatch []
+                Just (aPattern, aCallable) -> do
+                    aCallable aHandle aLine
+        predicate s (pat,_) = s =~ pat
+{-
     where 
         runDispatch bs = do
-	    mv <- newEmptyMVar
+            mv <- newEmptyMVar
             thId <- forkIO $ timeoutGuard tout mv
-            input <- receivechars mv serial count
+            input <- receivechars mv serial 
             killThread thId
             let str = bs `B.append` input
             case find (predicate str) patlist of
@@ -95,64 +101,68 @@ dispatchInput serial count patlist tout = do
                     writeToLogComm RECV $ B.unpack str 
                     cal serial str
         predicate s (pat, _) = s =~ pat
-	receivechars mv s cnt = do
-		x <- recv s cnt
-		v <- isEmptyMVar mv
-		if not v then do
-			writeToLogControl "TIME IS OUT"
-			exitFailure
-				    else do
-			return ()
-		if B.null x then receivechars mv s cnt else return x
+        receivechars mv s = do
+            x <- recv s 1 
+            v <- isEmptyMVar mv
+            if not v 
+                then do
+                    writeToLogControl "TIME IS OUT"
+                    exitFailure
+                else do
+                    return ()
+            if B.null x then receivechars mv s else return x
 
+-}
 main :: IO()
 main = do
     hSetBuffering stdout NoBuffering
     hSetBuffering stderr NoBuffering
-    (portName:configFile:[]) <- getArgs
-    rules <- parseRules configFile
-    env <- getEnvironment
-    
-    serial <- openSerialPort portName
 
-    sendLine serial B.empty 
+    (aDevicePath:aConfigPath:[]) <- getArgs
+    aRules <- parseRules aConfigPath 
+    anEnvironment <- getEnvironment
     
-    dispatchNext env rules (entryPoint rules) 10 serial 
+    aHandle <- openSerialPort aDevicePath
 
-    closeSerialPort serial
+    sendLine aHandle empty 
+    
+    dispatchNext anEnvironment aRules (entryPoint aRules) 10 aHandle 
+
+    closeSerialPort aHandle 
 
 getRules :: Rules -> String -> Maybe [Pattern]
-getRules (Rules {dispatchMap=m}) name = name `M.lookup` m
+getRules (Rules {dispatchMap = aDispatchMap}) aDispatcherName = aDispatcherName `M.lookup` aDispatchMap
 
-ruleToPatternDispatch :: [(String, String)] -> Rules -> Pattern -> (B.ByteString, (SerialPort -> B.ByteString -> IO()))
-ruleToPatternDispatch env rules Pattern {pattern=p, textToSend=t, nextDispatcher=n, ConfigParser.timeout=to} = (B.pack p, sendString env rules t n to)
+ruleToPatternDispatch :: [(String, String)] -> Rules -> Pattern -> (String, (Handle -> String -> IO()))
+ruleToPatternDispatch anEnv rules Pattern {pattern=aPattern, textToSend=aTextToSend, nextDispatcher=aNextDispatcher, ConfigParser.timeout=aTimeout} = 
+    (aPattern, sendString anEnv rules aTextToSend aNextDispatcher aTimeout)
 
-sendString :: [(String, String)] -> Rules -> String -> String -> Int -> SerialPort -> B.ByteString -> IO ()
-sendString env rules txt disp tout serial _ = do
-    let subst = substituteWithEnv env txt
-    writeToLogControl $ "Sending line: '" ++ txt ++ "' converted to '" ++ subst ++ "'"
-    sendLine serial (B.pack subst)
-    dispatchNext env rules disp tout serial
+sendString :: [(String, String)] -> Rules -> String -> String -> Int -> Handle -> String -> IO ()
+sendString anEnvironment aRules aTextToSend aDispatcher aTimeout aHandle _ = do
+    let aSubstString = substituteWithEnv anEnvironment aTextToSend 
+    writeToLogControl $ "Sending line: '" ++ aTextToSend ++ "' converted to '" ++ aSubstString ++ "'"
+    sendLine aHandle aSubstString 
+    dispatchNext anEnvironment aRules aDispatcher aTimeout aHandle 
 
-dispatchNext :: [(String, String)] -> Rules -> String -> Int -> SerialPort -> IO()
-dispatchNext env rules dn tout serial = do
-    let dr = getRules rules dn
-    case dr of
+dispatchNext :: [(String, String)] -> Rules -> String -> Int -> Handle -> IO()
+dispatchNext anEnvironment aRules aDispatcherName aTimeout aHandle = do
+    let aDispatcherRule = getRules aRules aDispatcherName
+    case aDispatcherRule of
         Nothing -> do
-            case dn of
+            case aDispatcherName of
                 "exitFailure" -> do
-                     writeToLogControl $ "Rule '" ++ dn ++ "' Exiting with failure code"
+                     writeToLogControl $ "Rule '" ++ aDispatcherName ++ "' Exiting with failure code"
                      exitFailure
                 "exitSuccess" -> do
-                     writeToLogControl $ "Rule '" ++ dn ++ "' Exiting with success code"
+                     writeToLogControl $ "Rule '" ++ aDispatcherName ++ "' Exiting with success code"
                      exitSuccess
                 _ -> do 
-                    writeToLogControl $ "Rule '" ++ dn ++ "' not found. Finishing with success"
+                    writeToLogControl $ "Rule '" ++ aDispatcherName ++ "' not found. Finishing with success"
                     return ()
-        Just pat -> do
-            writeToLogControl $ "Switching to rule '" ++ dn ++ "'"
-            let ruleSet = map (ruleToPatternDispatch env rules) pat
-            dispatchInput serial 20 ruleSet tout
+        Just aPattern -> do
+            writeToLogControl $ "Switching to rule '" ++ aDispatcherName ++ "'"
+            let ruleSet = map (ruleToPatternDispatch anEnvironment aRules) aPattern
+            dispatchInput aHandle ruleSet aTimeout 
 
 substituteWithEnv :: [(String, String)] -> String -> String
-substituteWithEnv env src = render $ setManyAttrib env $ newSTMP src
+substituteWithEnv anEnvironment aSourceString = render $ setManyAttrib anEnvironment $ newSTMP aSourceString 
