@@ -76,14 +76,31 @@ dispatchInput aHandle aPatterns aTimeout = do
         runDispatch []
     where
         runDispatch _ = do
-            aLine <- hGetLine aHandle
+            aTimeoutVar <- newEmptyMVar
+            aThread <- forkIO $ timeoutGuard aTimeout aTimeoutVar
+            aLine <- getLine aHandle aTimeoutVar
+            killThread aThread
             writeToLogComm RECV aLine
-            case find (predicate aLine) aPatterns of
+            case find (matchString aLine) aPatterns of
                 Nothing -> do
                     runDispatch []
                 Just (aPattern, aCallable) -> do
                     aCallable aHandle aLine
-        predicate s (pat,_) = s =~ pat
+        matchString aString (aPattern, _) = aString =~ aPattern 
+        getLine aHandle aTimeoutVar = do
+            isTimeout <- isEmptyMVar aTimeoutVar
+            unless isTimeout $ do
+                writeToLogControl "TIME IS OUT"
+                exitFailure
+            isEof <- hIsEOF aHandle
+            if isEof
+                then do
+                    -- sleep for 1 second and read again
+                    threadDelay 1000000
+                    getLine aHandle aTimeoutVar
+                else do
+                    hGetLine aHandle
+            
 {-
     where 
         runDispatch bs = do
@@ -123,6 +140,7 @@ main = do
     anEnvironment <- getEnvironment
     
     aHandle <- openSerialPort aDevicePath
+    hSetEcho aHandle False
 
     sendLine aHandle empty 
     
