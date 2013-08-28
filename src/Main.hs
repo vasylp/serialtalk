@@ -58,11 +58,10 @@ closeSerialPort aHandle = do
     hClose aHandle 
     writeToLogControl $ "Serial port closed"
 
-sendLine :: Handle -> String  -> IO Bool
+sendLine :: Handle -> String  -> IO () 
 sendLine aHandle aLine = do
     writeToLogComm SEND aLine  
     hPutStr aHandle $ aLine ++ "\r"
-    return True
 
 -- Seconds to sleep before kill
 timeoutGuard :: Int -> MVar () -> IO()
@@ -100,36 +99,7 @@ dispatchInput aHandle aPatterns aTimeout = do
                     getLine aHandle aTimeoutVar
                 else do
                     hGetLine aHandle
-            
-{-
-    where 
-        runDispatch bs = do
-            mv <- newEmptyMVar
-            thId <- forkIO $ timeoutGuard tout mv
-            input <- receivechars mv serial 
-            killThread thId
-            let str = bs `B.append` input
-            case find (predicate str) patlist of
-                Nothing -> do
-                    let (prevLines, lastLine) = B.spanEnd (/= '\n') str
-                    writeToLogComm RECV $ B.unpack prevLines
-                    runDispatch lastLine
-                Just (pat, cal) -> do
-                    writeToLogComm RECV $ B.unpack str 
-                    cal serial str
-        predicate s (pat, _) = s =~ pat
-        receivechars mv s = do
-            x <- recv s 1 
-            v <- isEmptyMVar mv
-            if not v 
-                then do
-                    writeToLogControl "TIME IS OUT"
-                    exitFailure
-                else do
-                    return ()
-            if B.null x then receivechars mv s else return x
 
--}
 main :: IO()
 main = do
     hSetBuffering stdout NoBuffering
