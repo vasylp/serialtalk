@@ -115,12 +115,20 @@ main = do
     
     aHandle <- openSerialPort aDevicePath
     hSetEcho aHandle False
-
-    sendLine aHandle empty 
     
-    dispatchNext anEnvironment aRules (entryPoint aRules) 10 aHandle 
+    let (initString, initTimeout) = parseOnStart aRules
+
+    sendLine aHandle initString 
+    
+    dispatchNext anEnvironment aRules (entryPoint aRules) initTimeout aHandle 
 
     closeSerialPort aHandle 
+
+parseOnStart :: Rules -> (String, Int)
+parseOnStart rules = 
+        case getRules rules "_onStart" of
+            Just (a:[]) -> (ConfigParser.textToSend a, ConfigParser.timeout a)
+            _ -> ("", 10)                
 
 getRules :: Rules -> String -> Maybe [Pattern]
 getRules (Rules {dispatchMap = aDispatchMap}) aDispatcherName = aDispatcherName `M.lookup` aDispatchMap

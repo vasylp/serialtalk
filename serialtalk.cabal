@@ -1,5 +1,5 @@
 name:               serialtalk 
-version:            0.6.1
+version:            0.6.2
 synopsis:           Simple serial port scripting tool
 homepage:           https://github.com/vasylp/serialtalk
 category:           Hardware
